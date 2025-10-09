@@ -2,10 +2,36 @@
 #include "endian_util.h"
 #include <string.h>
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Defines
+// ─────────────────────────────────────────────────────────────────────────────
 #ifndef TABLE_PAGE_SIZE
 #define TABLE_PAGE_SIZE 4096
 #endif
 
+// ───────────── Header accessors ─────────────
+static inline uint16_t hdr_kind(const void* page);
+static inline void hdr_set_kind(void* page, uint16_t v);
+static inline uint16_t hdr_record_size(const void* page);
+static inline void hdr_set_record_size(void* page, uint16_t v);
+static inline uint16_t hdr_capacity(const void* page);
+static inline void hdr_set_capacity(void* page, uint16_t v);
+static inline uint16_t hdr_used_count(const void* page);
+static inline void hdr_set_used_count(void* page, uint16_t v);
+static inline uint32_t hdr_next_page(const void* page);
+static inline void hdr_set_next_page(void* page, uint32_t v);
+static inline void hdr_clear_reserved(void* page);
+
+// ───────────── Bitmap helpers ─────────────
+static inline uint8_t* bitmap_ptr(void* page);
+static inline const uint8_t* bitmap_ptr_c(const void* page);
+static inline size_t bitmap_size_bytes(uint16_t capacity);
+static inline size_t bitmap_popcount(const uint8_t* bm, size_t nbytes);
+
+// ───────────── Data helpers ─────────────
+static inline size_t data_offset(uint16_t capacity);
+static inline uint8_t* data_ptr(void* page, uint16_t capacity);
+static inline const uint8_t* data_ptr_c(const void* page, uint16_t capacity);
 
 static int compute_capacity(int record_size) {
   if (record_size <= 0 || record_size > TABLE_PAGE_SIZE)
@@ -13,7 +39,7 @@ static int compute_capacity(int record_size) {
 
   size_t available = TABLE_PAGE_SIZE - TABLE_HDR_SIZE;
 
-  if (available < record_size)
+  if (available < (size_t) record_size)
     return 0;
 
   size_t guess = available / record_size;
@@ -52,6 +78,74 @@ int tbl_init_leaf(void* page, uint16_t record_size) {
   return TABLE_OK;
 }
 
+int tbl_validate(const void* page) {
+  if (!page)
+    return TABLE_E_INVAL;
+
+  if (hdr_kind(page) != TABLE_PAGE_KIND_LEAF)
+    return TABLE_E_BADKIND;
+
+  uint16_t record_size = hdr_record_size(page);
+  if (record_size != TABLE_RECORD_SIZE)
+    return TABLE_E_LAYOUT;
+
+  uint16_t cap = hdr_capacity(page);
+
+  if (cap < 1 || cap != compute_capacity(record_size))
+    return TABLE_E_LAYOUT;
+
+  uint16_t used = hdr_used_count(page);
+  if (used > cap)
+    return TABLE_E_LAYOUT;
+
+  size_t bm_bytes = bitmap_size_bytes(cap);
+
+  size_t bm_pop = bitmap_popcount(bitmap_ptr_c(page), bm_bytes);
+  if (bm_pop != used)
+    return TABLE_E_BITMAP;
+
+  size_t total = data_offset(cap) + (size_t)(cap * record_size);
+  if (total > TABLE_PAGE_SIZE)
+    return TABLE_E_LAYOUT;
+
+  uint16_t valid_bits_last = (uint16_t)(cap & 7u);
+  if (valid_bits_last != 0) {
+    const uint8_t* bm = bitmap_ptr_c(page);
+    uint8_t last_byte = bm[bm_bytes - 1];
+    uint8_t invalid_mask = (uint8_t)(0xFFu << valid_bits_last);
+    if ((last_byte & invalid_mask) != 0)
+      return TABLE_E_BITMAP;
+  }
+  return TABLE_OK;
+}
+
+int tbl_slot_find_free(const void* page) {
+  if (!page)
+    return -1;
+
+  uint16_t cap = hdr_capacity(page);
+  uint16_t used = hdr_used_count(page);
+
+  if (cap == 0 || used == cap)
+    return -1;
+
+  const uint8_t *bm = bitmap_ptr_c(page);
+  size_t bm_bytes = bitmap_size_bytes(cap);
+
+  for (size_t i = 0; i < bm_bytes; i++) {
+    if (bm[i] != 0xFF) {
+      for (int j = 0; j < 8; j++) {
+        if ((bm[i] & (1u << j)) == 0) {
+          size_t idx = i * 8 + j;
+          if (idx < cap) {
+            return idx;
+          }
+        }
+      }
+    }
+  }
+  return -1;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Header accessors (internal)
@@ -179,6 +273,22 @@ static inline const uint8_t* bitmap_ptr_c(const void* page) {
 static inline size_t bitmap_size_bytes(uint16_t capacity) {
   return (capacity + 7u) / 8u;
 }
+
+/**
+ * @brief Count the number of bits set in the bitmap (i.e. used slots).
+ */
+static inline size_t bitmap_popcount(const uint8_t* bm, size_t nbytes) {
+  size_t count = 0;
+  for (size_t i = 0; i < nbytes; i++) {
+    uint8_t byte = bm[i];
+    while (byte) {
+      count += byte & 1u;
+      byte >>= 1;
+    }
+  }
+  return count;
+}
+
 
 /**
  * @brief Compute the byte offset where record data begins.

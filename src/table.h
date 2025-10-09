@@ -61,7 +61,6 @@ typedef enum {
  */
 int   tbl_init_leaf(void* page, uint16_t record_size /*=128*/);
 
-
 /**
  * @brief Validate invariants for a TABLE_LEAF page.
  *
