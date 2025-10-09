@@ -1,5 +1,6 @@
 .vscode/
 tests/fixtures/
+*.bin
 # Prerequisites
 *.d
 
