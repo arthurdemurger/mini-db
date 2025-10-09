@@ -1,5 +1,5 @@
 .vscode/
-
+tests/fixtures/
 # Prerequisites
 *.d
 
