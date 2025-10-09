@@ -8,6 +8,9 @@
 #include <stdint.h>
 #include <limits.h>
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Defines (on-disk header layout)
+// ─────────────────────────────────────────────────────────────────────────────
 #define HDR_MAGIC_OFF      0   // 4 bytes
 #define HDR_VERSION_OFF    4   // u32 LE
 #define HDR_PAGESIZE_OFF   8   // u32 LE
@@ -17,13 +20,22 @@
 #define FILE_MAGIC_LEN  4
 #define FILE_VERSION    1u
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Private type
+// ─────────────────────────────────────────────────────────────────────────────
 struct Pager {
     int fd;
     size_t page_size;
     uint32_t page_count;
 };
 
-
+// ─────────────────────────────────────────────────────────────────────────────
+// Private helpers
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * @brief Read exactly `len` bytes at `base_offset` using pread.
+ *        Handles EINTR and short reads safely.
+ */
 static int read_full(int fd, void* buf, size_t len, off_t base_offset) {
   size_t done = 0;
   ssize_t n = 0;
@@ -45,6 +57,9 @@ static int read_full(int fd, void* buf, size_t len, off_t base_offset) {
   return PAGER_OK;
 }
 
+/**
+ * @brief Read a 32-bit little-endian integer from a byte buffer.
+ */
 static inline uint32_t read_le_u32(const uint8_t *p) {
     return (uint32_t)p[0]
          | ((uint32_t)p[1] << 8)
@@ -52,6 +67,10 @@ static inline uint32_t read_le_u32(const uint8_t *p) {
          | ((uint32_t)p[3] << 24);
 }
 
+/**
+ * @brief Validate the 20-byte on-disk header and extract fields.
+ *        Checks magic/version/page_size/page_count/flags.
+ */
 static int validate_header(const uint8_t hdr[PAGER_HDR_SIZE],
                            uint32_t* out_version,
                            uint32_t* out_page_size,
@@ -77,7 +96,13 @@ static int validate_header(const uint8_t hdr[PAGER_HDR_SIZE],
   return PAGER_OK;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Public API
+// ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * @brief Open and validate a MiniDB file, returning an opaque Pager handle.
+ */
 int pager_open(const char* path, Pager** out) {
     int rc = PAGER_OK;
     int fd = -1;
@@ -132,7 +157,7 @@ int pager_open(const char* path, Pager** out) {
         goto cleanup;
     }
     p->fd = fd;
-    fd = -1;
+    fd = -1; // ownership transferred
     p->page_size = page_size;
     p->page_count = page_count;
     *out = p;
@@ -145,7 +170,10 @@ cleanup:
     return rc;
 }
 
-
+/**
+ * @brief Read a full page by number into out_page_buf.
+ *        Guards against out-of-range and arithmetic overflow.
+ */
 int  pager_read(const Pager* p, uint32_t page_no, void* out_page_buf) {
   if (!p || !out_page_buf)
     return PAGER_E_INVAL;
@@ -161,20 +189,37 @@ int  pager_read(const Pager* p, uint32_t page_no, void* out_page_buf) {
   return read_full(p->fd, out_page_buf, p->page_size, base);
 }
 
+/**
+ * @brief Return the page size used by this Pager.
+ */
 size_t pager_page_size(const Pager* p) {
   return p ? p->page_size : 0;
 }
 
+
+/**
+ * @brief Return the number of pages in the file.
+ */
 uint32_t pager_page_count(const Pager* p) {
   return p ? p->page_count : 0;
 }
 
+/**
+ * @brief Close the Pager and free resources.
+ */
 void pager_close(Pager* p) {
     if (!p) return;
     close(p->fd);
     free(p);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Utilities
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @brief Convert an error code to a human-readable string.
+ */
 const char* pager_errstr(int code) {
   switch (code) {
     case PAGER_OK:         return "ok";
