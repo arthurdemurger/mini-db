@@ -1,4 +1,5 @@
 #include "pager.h"
+#include "endian_util.h"
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -55,16 +56,6 @@ static int read_full(int fd, void* buf, size_t len, off_t base_offset) {
   }
 
   return PAGER_OK;
-}
-
-/**
- * @brief Read a 32-bit little-endian integer from a byte buffer.
- */
-static inline uint32_t read_le_u32(const uint8_t *p) {
-    return (uint32_t)p[0]
-         | ((uint32_t)p[1] << 8)
-         | ((uint32_t)p[2] << 16)
-         | ((uint32_t)p[3] << 24);
 }
 
 /**
