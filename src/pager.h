@@ -7,6 +7,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Error codes (public)
@@ -67,6 +68,36 @@ void        pager_close(Pager* p);
  * @return PAGER_OK or a negative PagerError code.
  */
 int         pager_read(const Pager* p, uint32_t page_no, void* out_page_buf);
+
+/**
+ * @brief Write one full page from memory to disk (Design A).
+ *
+ * Writes exactly page_size bytes at offset page_no * page_size.
+ * The pager must have been opened in read/write mode.
+ *
+ * @param[in] p         Pager handle (non-null).
+ * @param[in] page_no   Page index (0-based, must be < page_count).
+ * @param[in] page_buf  Pointer to a buffer of size page_size.
+ * @return PAGER_OK on success,
+ *         PAGER_E_INVAL for bad args,
+ *         PAGER_E_RANGE if page_no >= page_count,
+ *         PAGER_E_IO on I/O failure,
+ *         PAGER_E_META if offset overflow detected.
+ */
+int pager_write(const Pager* p, uint32_t page_no, const void* page_buf);
+
+/**
+ * @brief Allocate a new blank page at the end of the file
+ *
+ * - Extends the file by one page filled with zeros.
+ * - Updates the in-memory and on-disk page_count.
+ * - Returns the new page number via out_page_no.
+ *
+ * @param[in,out] p           Pager handle (opened read/write).
+ * @param[out] out_page_no    Receives index of the newly allocated page.
+ * @return PAGER_OK on success or a negative PagerError on failure.
+ */
+int pager_alloc_page(Pager* p, uint32_t* out_page_no);
 
 /**
  * @brief Retrieve page geometry information.
