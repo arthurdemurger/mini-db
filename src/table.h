@@ -62,55 +62,69 @@ typedef enum {
 int   tbl_init_leaf(void* page, uint16_t record_size /*=128*/);
 
 /**
- * @brief Validate invariants for a TABLE_LEAF page.
- *
- * Checks header values, record size, capacity formula, used count,
- * bitmap consistency, and that no bits beyond capacity are set.
- *
- * @param[in] page  Pointer to a 4 KiB page buffer.
- * @return TABLE_OK if valid, or a negative TableError if corrupted.
+ * @brief Validate the internal consistency of a TABLE_LEAF page.
+ * Checks header fields, recomputed capacity, used_count bounds, bitmap popcount
+ * equality, geometry (header + bitmap + data fits in page), and that high bits
+ * beyond capacity in the last bitmap byte are zero (LSB-first layout).
+ * @param[in] page Non-null pointer to a 4 KiB page.
+ * @return TABLE_OK on success,
+ *         TABLE_E_INVAL (bad args),
+ *         TABLE_E_BADKIND (wrong kind),
+ *         TABLE_E_LAYOUT (record_size/capacity/geometry issues),
+ *         TABLE_E_BITMAP (bitmap popcount or extra bits set).
  */
 int   tbl_validate(const void* page);
 
 /**
- * @brief Find the first free record slot in a TABLE_LEAF page.
- *
- * @param[in] page  Pointer to a 4 KiB page buffer.
- * @return The slot index (>=0) if available, or -1 if the page is full.
+ * @brief Find the first free slot (bit = 0) scanning LSB-first.
+ * Does not modify the page; relies only on the bitmap. The caller may
+ * subsequently call tbl_slot_mark_used(idx) to reserve that slot.
+ * @param[in] page Non-null pointer to a TABLE_LEAF page.
+ * @return Slot index in [0..capacity-1] if a free slot exists, or -1 if none.
  */
 int   tbl_slot_find_free(const void* page);
 
 /**
- * @brief Mark a record slot as used and increment the used count.
- *
- * @param[in,out] page  Pointer to the page buffer.
- * @param[in]     idx   Slot index to mark.
- * @return TABLE_OK on success, or TABLE_E_INVAL if index is invalid.
+ * @brief Mark a slot as used (set bit = 1) and increment used_count.
+ * Requires: 0 <= idx < capacity; slot must currently be free (bit = 0).
+ * @param[in,out] page Page buffer to modify.
+ * @param[in] idx Slot index.
+ * @return TABLE_OK on success,
+ *         TABLE_E_INVAL if page/idx are invalid or slot already used,
+ *         TABLE_E_FULL if used_count == capacity,
+ *         TABLE_E_LAYOUT if used_count > capacity (corruption).
  */
 int   tbl_slot_mark_used(void* page, int idx);
 
 /**
- * @brief Mark a record slot as free and decrement the used count.
- *
- * @param[in,out] page  Pointer to the page buffer.
- * @param[in]     idx   Slot index to clear.
- * @return TABLE_OK on success, or TABLE_E_INVAL if index is invalid.
+ * @brief Mark a slot as free (set bit = 0) and decrement used_count.
+ * Requires: 0 <= idx < capacity; slot must currently be used (bit = 1).
+ * @param[in,out] page Page buffer to modify.
+ * @param[in] idx Slot index.
+ * @return TABLE_OK on success,
+ *         TABLE_E_INVAL if page/idx are invalid, slot already free, or used_count == 0,
+ *         TABLE_E_LAYOUT if used_count > capacity (corruption).
  */
 int   tbl_slot_mark_free(void* page, int idx);
 
 /**
- * @brief Return a pointer to the record at the specified slot.
- *
- * The caller must ensure the slot index is within [0, capacity).
- *
- * @param[in,out] page  Pointer to the page buffer.
- * @param[in]     idx   Slot index.
- * @return Pointer to record data within the page, or NULL if invalid.
+ * @brief Return a pointer to record slot idx inside the page's data area.
+ * No bitmap/state checks are performed; the caller must ensure the slot state.
+ * @param[in,out] page Page buffer.
+ * @param[in] idx Slot index; must satisfy 0 <= idx < capacity.
+ * @return Non-NULL pointer to record memory, or NULL if out of range.
  */
 void* tbl_slot_ptr(void* page, int idx);
 
 /**
- * @brief Retrieve the capacity (number of record slots) of the page.
+ * @brief Const-qualified variant of tbl_slot_ptr.
+ * @see tbl_slot_ptr
+ */
+const void* tbl_slot_ptr_c(const void* page, int idx);
+
+/**
+ * @brief Getters for header fields (read-only).
+ * Return the raw header values; the page is expected to be validated by caller.
  */
 uint16_t tbl_get_capacity(const void* page);
 

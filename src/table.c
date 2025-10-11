@@ -30,33 +30,7 @@ static inline size_t bitmap_popcount(const uint8_t* bm, size_t nbytes);
 
 // ───────────── Data helpers ─────────────
 static inline size_t data_offset(uint16_t capacity);
-static inline uint8_t* data_ptr(void* page, uint16_t capacity);
-static inline const uint8_t* data_ptr_c(const void* page, uint16_t capacity);
-
-static int compute_capacity(int record_size) {
-  if (record_size <= 0 || record_size > TABLE_PAGE_SIZE)
-    return 0;
-
-  size_t available = TABLE_PAGE_SIZE - TABLE_HDR_SIZE;
-
-  if (available < (size_t) record_size)
-    return 0;
-
-  size_t guess = available / record_size;
-
-  if (guess <= 0)
-    return 0;
-
-  for (int c = guess; c > 0; c--) {
-    size_t bitmap_bytes = (c + 7) / 8;
-
-    size_t total = TABLE_HDR_SIZE + bitmap_bytes + (size_t) (c * record_size);
-
-    if (total <= TABLE_PAGE_SIZE)
-      return c;
-  }
-  return 0;
-}
+static int compute_capacity(int record_size);
 
 int tbl_init_leaf(void* page, uint16_t record_size) {
   if (!page || record_size != TABLE_RECORD_SIZE)
@@ -145,6 +119,116 @@ int tbl_slot_find_free(const void* page) {
     }
   }
   return -1;
+}
+
+int tbl_slot_mark_used(void* page, int idx) {
+  if (!page || idx < 0)
+    return TABLE_E_INVAL;
+
+  uint16_t cap = hdr_capacity(page);
+
+  if (cap <= idx)
+    return TABLE_E_INVAL;
+
+  uint16_t used = hdr_used_count(page);
+  if (used > cap)
+    return TABLE_E_LAYOUT;
+
+  if (used == cap)
+    return TABLE_E_FULL;
+
+  uint8_t *bm = bitmap_ptr(page);
+  size_t byte = idx / 8;
+  size_t bit = idx % 8;
+
+  uint8_t bit_mask = (uint8_t) (1u << bit);
+  if ((bm[byte] & bit_mask) != 0)
+    return TABLE_E_INVAL;
+
+  bm[byte] |= bit_mask;
+
+  hdr_set_used_count(page, used + 1);
+  return TABLE_OK;
+}
+
+int   tbl_slot_mark_free(void* page, int idx) {
+  if (!page || idx < 0)
+    return TABLE_E_INVAL;
+
+  uint16_t cap = hdr_capacity(page);
+
+  if (cap <= idx)
+    return TABLE_E_INVAL;
+
+  uint16_t used = hdr_used_count(page);
+  if (used > cap)
+    return TABLE_E_LAYOUT;
+
+  if (used == 0)
+    return TABLE_E_INVAL;
+
+  uint8_t *bm = bitmap_ptr(page);
+  size_t byte = idx / 8;
+  size_t bit = idx % 8;
+
+  uint8_t bit_mask = (uint8_t) (1u << bit);
+  if ((bm[byte] & bit_mask) == 0)
+    return TABLE_E_INVAL;
+
+  bm[byte] &= (uint8_t) ~bit_mask;
+
+  hdr_set_used_count(page, used - 1);
+  return TABLE_OK;
+}
+
+void* tbl_slot_ptr(void* page, int idx){
+  if (!page || idx < 0)
+    return NULL;
+
+  uint16_t cap = hdr_capacity(page);
+
+  if (cap <= idx)
+    return NULL;
+
+  uint8_t* base = (uint8_t*)page;
+
+  size_t offset = data_offset(cap);
+  uint16_t record_size = hdr_record_size(page);
+
+  return base + offset + (size_t) (record_size * idx);
+}
+
+const void* tbl_slot_ptr_c(const void* page, int idx) {
+    if (!page || idx < 0)
+    return NULL;
+
+  uint16_t cap = hdr_capacity(page);
+
+  if (cap <= idx)
+    return NULL;
+
+  const uint8_t* base = (const uint8_t*)page;
+
+  size_t offset = data_offset(cap);
+  uint16_t record_size = hdr_record_size(page);
+
+  return base + offset + (size_t) (record_size * idx);
+}
+
+uint16_t tbl_get_capacity(const void* page){
+  return hdr_capacity(page);
+}
+
+uint16_t tbl_get_record_size(const void* page){
+  return hdr_record_size(page);
+}
+
+uint16_t tbl_get_used_count(const void* page){
+  return hdr_used_count(page);
+}
+
+uint32_t tbl_get_next_page(const void* page){
+  return hdr_next_page(page);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -289,7 +373,6 @@ static inline size_t bitmap_popcount(const uint8_t* bm, size_t nbytes) {
   return count;
 }
 
-
 /**
  * @brief Compute the byte offset where record data begins.
  */
@@ -297,18 +380,27 @@ static inline size_t data_offset(uint16_t capacity) {
   return TABLE_HDR_SIZE + bitmap_size_bytes(capacity);
 }
 
-/**
- * @brief Return a pointer to the first record slot (data area).
- */
-static inline uint8_t* data_ptr(void* page, uint16_t capacity) {
-  uint8_t* base = (uint8_t*)page;
-  return base + data_offset(capacity);
-}
+static int compute_capacity(int record_size) {
+  if (record_size <= 0 || record_size > TABLE_PAGE_SIZE)
+    return 0;
 
-/**
- * @brief Return a const pointer to the first record slot (read-only).
- */
-static inline const uint8_t* data_ptr_c(const void* page, uint16_t capacity) {
-  const uint8_t* base = (const uint8_t*)page;
-  return base + data_offset(capacity);
+  size_t available = TABLE_PAGE_SIZE - TABLE_HDR_SIZE;
+
+  if (available < (size_t) record_size)
+    return 0;
+
+  size_t guess = available / record_size;
+
+  if (guess <= 0)
+    return 0;
+
+  for (size_t c = guess; c > 0; c--) {
+    size_t bitmap_bytes = (c + 7) / 8;
+
+    size_t total = TABLE_HDR_SIZE + bitmap_bytes + (size_t) (c * record_size);
+
+    if (total <= TABLE_PAGE_SIZE)
+      return c;
+  }
+  return 0;
 }
