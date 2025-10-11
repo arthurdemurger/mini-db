@@ -117,12 +117,122 @@ static void test_find_free_full_page(void) {
     assert(idx == -1 && "no free slot when all valid bits are 1");
 }
 
+static void test_mark_used_basic_and_twice(void) {
+    uint8_t page[TABLE_PAGE_SIZE];
+    assert(tbl_init_leaf(page, TABLE_RECORD_SIZE) == TABLE_OK);
+
+    // slot 0 free → mark_used OK
+    int rc = tbl_slot_mark_used(page, 0);
+    assert(rc == TABLE_OK);
+
+    // used_count incremented
+    uint16_t used = read_le_u16(page + TABLE_HDR_USED_COUNT_OFF);
+    assert(used == 1);
+
+    // same slot again → E_INVAL
+    rc = tbl_slot_mark_used(page, 0);
+    assert(rc == TABLE_E_INVAL);
+}
+
+static void test_mark_used_last_slot_and_full(void) {
+    uint8_t page[TABLE_PAGE_SIZE];
+    assert(tbl_init_leaf(page, TABLE_RECORD_SIZE) == TABLE_OK);
+
+    uint16_t cap = read_le_u16(page + TABLE_HDR_CAPACITY_OFF);
+
+    // Remplit cap-1 slots (via l’API) puis prend le dernier
+    for (uint16_t i = 0; i < cap - 1; i++) {
+        assert(tbl_slot_mark_used(page, i) == TABLE_OK);
+    }
+    // Dernier slot → OK et used == cap
+    assert(tbl_slot_mark_used(page, cap - 1) == TABLE_OK);
+    uint16_t used = read_le_u16(page + TABLE_HDR_USED_COUNT_OFF);
+    assert(used == cap);
+
+    // Page pleine → mark_used(cap-1) encore → E_FULL (ou n’importe quel idx libre inexistant)
+    assert(tbl_slot_mark_used(page, 0) == TABLE_E_FULL);
+}
+
+static void test_mark_free_basic_and_twice(void) {
+    uint8_t page[TABLE_PAGE_SIZE];
+    assert(tbl_init_leaf(page, TABLE_RECORD_SIZE) == TABLE_OK);
+
+    // Pose un slot puis libère-le
+    assert(tbl_slot_mark_used(page, 3) == TABLE_OK);
+    uint16_t used = read_le_u16(page + TABLE_HDR_USED_COUNT_OFF);
+    assert(used == 1);
+
+    assert(tbl_slot_mark_free(page, 3) == TABLE_OK);
+    used = read_le_u16(page + TABLE_HDR_USED_COUNT_OFF);
+    assert(used == 0);
+
+    // Le même slot encore → E_INVAL (déjà libre)
+    assert(tbl_slot_mark_free(page, 3) == TABLE_E_INVAL);
+}
+
+static void test_mark_free_when_empty(void) {
+    uint8_t page[TABLE_PAGE_SIZE];
+    assert(tbl_init_leaf(page, TABLE_RECORD_SIZE) == TABLE_OK);
+    // used == 0 → libérer n’importe quel idx valide doit échouer
+    assert(tbl_slot_mark_free(page, 0) == TABLE_E_INVAL);
+}
+
+static void test_slot_ptr_addresses(void) {
+    uint8_t page[TABLE_PAGE_SIZE];
+    assert(tbl_init_leaf(page, TABLE_RECORD_SIZE) == TABLE_OK);
+
+    uint16_t cap = read_le_u16(page + TABLE_HDR_CAPACITY_OFF);
+    uint16_t rec = read_le_u16(page + TABLE_HDR_RECORD_SIZE_OFF);
+    size_t data_off = TABLE_HDR_SIZE + (cap + 7u) / 8u;
+
+    // idx=0
+    uint8_t* p0 = (uint8_t*)tbl_slot_ptr(page, 0);
+    assert(p0 == (page + data_off));
+
+    // idx=1
+    uint8_t* p1 = (uint8_t*)tbl_slot_ptr(page, 1);
+    assert(p1 == (page + data_off + rec));
+
+    // idx=cap-1
+    uint8_t* plast = (uint8_t*)tbl_slot_ptr(page, (int)(cap - 1));
+    assert(plast == (page + data_off + (size_t)(cap - 1) * rec));
+
+    // hors bornes
+    assert(tbl_slot_ptr(page, -1) == NULL);
+    assert(tbl_slot_ptr(page, (int)cap) == NULL);
+}
+
+static void test_getters_basic(void) {
+    uint8_t page[TABLE_PAGE_SIZE];
+    assert(tbl_init_leaf(page, TABLE_RECORD_SIZE) == TABLE_OK);
+
+    // Les getters doivent refléter les champs header
+    assert(tbl_get_record_size(page) == TABLE_RECORD_SIZE);
+
+    uint16_t cap = read_le_u16(page + TABLE_HDR_CAPACITY_OFF);
+    assert(tbl_get_capacity(page) == cap);
+
+    uint16_t used = read_le_u16(page + TABLE_HDR_USED_COUNT_OFF);
+    assert(tbl_get_used_count(page) == used);
+
+    assert(tbl_get_next_page(page) == 0);
+
+    // Simule un chainage
+    write_le_u32(page + TABLE_HDR_NEXT_PAGE_OFF, 42);
+    assert(tbl_get_next_page(page) == 42);
+}
+
 int main(void) {
     test_init_and_validate_ok();
     test_find_free_basic();
     test_validate_popcount_mismatch();
     test_validate_last_byte_extra_bits();
     test_find_free_full_page();
-    printf("table.c tests passed.\n");
+    test_mark_used_basic_and_twice();
+    test_mark_used_last_slot_and_full();
+    test_mark_free_basic_and_twice();
+    test_mark_free_when_empty();
+    test_slot_ptr_addresses();
+    test_getters_basic();
     return 0;
 }
