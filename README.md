@@ -12,9 +12,11 @@ A tiny educational database engine in C that starts with a clean, low-level **pa
 - Bitmap management and validation (`bitmap_popcount`, extra-bit masking)
 - Complete test suite for `pager.c` and `table.c`
 - Updated Makefile with independent test targets (`test_pager.bin`, `test_table.bin`)
+- Slot operations (`tbl_slot_mark_used`, `tbl_slot_mark_free`)
+- Slot accessors (`tbl_slot_ptr`, `tbl_slot_ptr_c`)
+- Header getters (`tbl_get_capacity`, `tbl_get_record_size`, `tbl_get_used_count`, `tbl_get_next_page`)
 
 🧩 **In progress / upcoming:**
-- `tbl_slot_mark_used` / `tbl_slot_mark_free` to update `used_count`
 - Higher-level CRUD API (`table_insert`, `table_select_all`)
 - Pager write/alloc extensions
 - CLI (REPL) for manual testing
@@ -127,13 +129,17 @@ Violations return `TABLE_E_*` codes.
 - ✅ `tbl_validate()` detects layout, bitmap, and popcount mismatches
 - ✅ `tbl_slot_find_free()` returns correct first free slot and -1 when full
 - ✅ Extra bits in the last bitmap byte trigger `TABLE_E_BITMAP`
+- ✅ `tbl_slot_mark_used()` / `tbl_slot_mark_free()` update and validate `used_count`
+- ✅ `tbl_slot_ptr()` and `_c()` return correct record pointers
+- ✅ Getters return header fields consistent with raw layout
+
 
 Typical output:
 
 ```
 $ make run
 All pager tests passed.
-table.c tests passed.
+All table tests passed.
 ```
 
 ---
@@ -145,7 +151,7 @@ table.c tests passed.
 - [x] TABLE_LEAF layout + capacity validation
 - [x] tbl_init_leaf / tbl_validate / tbl_slot_find_free
 - [x] Dedicated table test binary (`test_table.bin`)
-- [ ] Slot mark/free + update used_count
+- [x] Slot mark/free + update used_count
 - [ ] Table-level CRUD (`insert`, `select_all`)
 - [ ] Pager write/alloc
 - [ ] Simple REPL CLI
