@@ -115,6 +115,6 @@ int main(void) {
     test_bad_flags();
     test_truncated();
     test_ok_extra();
-    printf("All tests passed.\n");
+    printf("All pager tests passed.\n");
     return 0;
 }

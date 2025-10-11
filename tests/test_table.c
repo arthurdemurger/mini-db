@@ -234,5 +234,6 @@ int main(void) {
     test_mark_free_when_empty();
     test_slot_ptr_addresses();
     test_getters_basic();
+    printf("All table tests passed.\n");
     return 0;
 }
