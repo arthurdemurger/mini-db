@@ -6,15 +6,29 @@
 #include "table.h"
 
 /**
- * @brief Initialize a new table in the database file.
+ * @brief Initialize (or open-idempotent) the first leaf page of a table.
  *
- * This function allocates the first leaf page (page 0 by default)
- * and initializes it with the correct layout.
+ * Policy:
+ * - Page 0 is reserved for the file header and MUST NOT be used by tables.
+ * - If first_page_num >= pager_page_count, missing pages are allocated until
+ *   first_page_num exists (Design A: explicit alloc via pager_alloc_page).
+ * - If the target page is all zeros, it is initialized as a V1 leaf:
+ *     kind = TABLE_PAGE_KIND_LEAF (0x0001),
+ *     record_size = 128 (TABLE_RECORD_SIZE),
+ *     used_count = 0,
+ *     next_page = 0,
+ *     bitmap cleared.
+ * - If the target page already contains a VALID leaf page and is EMPTY
+ *   (validate OK, record_size == 128, used_count == 0, next_page == 0),
+ *   the operation is idempotent and returns TABLE_OK without rewriting.
+ * - Otherwise (non-zero and not a valid empty leaf), the function refuses to
+ *   overwrite and returns an error (e.g., TABLE_E_INVAL or TABLE_E_LAYOUT).
  *
- * @param pager  Pointer to an open Pager instance.
- * @param first_page_num  Page number to initialize as the first page (usually 0).
- * @return TABLE_OK on success, TABLE_E_* on failure.
+ * @param pager           Open Pager instance (read/write).
+ * @param first_page_num  Page number to initialize as the first leaf (MUST be >= 1).
+ * @return TABLE_OK on success; a negative TableError (TABLE_E_*) on failure.
  */
+
 int tblmgr_create(Pager* pager, uint32_t first_page_num);
 
 /**
