@@ -58,3 +58,85 @@ int tblmgr_create(Pager* pager, uint32_t first_page_num) {
   free(buf);
   return TABLE_E_INVAL;
 }
+
+int tblmgr_insert(Pager* p, uint32_t root_page_no, const void* rec_128b, uint32_t* out_id)
+{
+  if (!p || root_page_no < 1 || !rec_128b) {
+    return TABLE_E_INVAL;
+  }
+
+  const size_t pgsz = pager_page_size(p);
+  uint8_t* buf = malloc(pgsz);
+  if (!buf) return TABLE_E_INVAL;
+
+  uint32_t page = root_page_no;
+
+  // insert loop
+  while (true) {
+    int rc = pager_read(p, page, buf);
+    if (rc != PAGER_OK) { free(buf); return TABLE_E_INVAL; }
+
+    // Validate the table/leaf format
+    rc = tbl_validate(buf);
+    if (rc != TABLE_OK) { free(buf); return rc; }
+
+    const uint16_t cap  = tbl_get_capacity(buf);
+    const uint16_t used = tbl_get_used_count(buf);
+    const uint32_t next = tbl_get_next_page(buf);
+
+    // if there's space, insert here
+    if (used < cap) {
+      int idx = tbl_slot_find_free(buf);
+      if (idx < 0) { free(buf); return TABLE_E_LAYOUT; }
+
+      void *dst = tbl_slot_ptr(buf, (uint16_t) idx);
+      if (!dst) { free(buf); return TABLE_E_INVAL; }
+
+      memcpy(dst, rec_128b, TABLE_RECORD_SIZE);
+
+      tbl_slot_mark_used(buf, (uint16_t)idx);
+
+      rc = pager_write(p, page, buf);
+      if (rc != PAGER_OK) { free(buf); return TABLE_E_INVAL; }
+
+      // Compose a 32-bit logical record ID: (page << 16) | slot
+      if (out_id)
+        *out_id = (page << 16) | (uint32_t)idx;
+
+      free(buf);
+      return TABLE_OK;
+    }
+
+    // if the page is full, follow the linked chain if possible
+    if (next != 0) {
+      page = next;
+      continue;
+    }
+
+    // End of chain and page is full → allocate and link a new page
+    // (a) Allocate a new physical page
+    uint32_t new_page;
+    rc = pager_alloc_page(p, &new_page);
+    if (rc != PAGER_OK) { free(buf); return TABLE_E_INVAL; }
+
+    // (b) Prepare a fresh leaf page
+    uint8_t* newbuf = calloc(1, pgsz);
+    if (!newbuf) { free(buf); return TABLE_E_INVAL; }
+
+    rc = tbl_init_leaf(newbuf, TABLE_RECORD_SIZE);
+    if (rc != TABLE_OK) { free(newbuf); free(buf); return rc; }
+
+    // Write the new page to disk before linking it
+    rc = pager_write(p, new_page, newbuf);
+    if (rc != PAGER_OK) { free(newbuf); free(buf); return TABLE_E_INVAL; }
+    free(newbuf);
+
+    // (c) Link the old full page to the new page
+    tbl_set_next_page(buf, new_page);
+    rc = pager_write(p, page, buf);
+    if (rc != PAGER_OK) { free(buf); return TABLE_E_INVAL; }
+
+    // Now continue on the new page in the next loop iteration
+    page = new_page;
+  }
+}

@@ -32,16 +32,23 @@
 int tblmgr_create(Pager* pager, uint32_t first_page_num);
 
 /**
- * @brief Insert a new record into the table, automatically handling page chaining.
+ * @brief Insert a new 128-byte record into the table, allocating pages as needed.
  *
- * This function searches the table pages in order for a free slot.
- * If all pages are full, a new page is allocated and linked.
+ * This function finds the first page with a free slot, or allocates a new
+ * leaf page at the end of the file if all existing pages are full.
+ * The new record is copied into the first free slot, and the used count
+ * and bitmap are updated accordingly.
  *
- * @param pager        Pointer to the Pager managing the file.
- * @param record_data  Pointer to the record data to be inserted.
- * @return 0-based global slot index (across all pages), or TABLE_E_* on error.
- */
-int tblmgr_insert(Pager* pager, const void* record_data);
+ * @param p            Pointer to the Pager managing the file.
+ * @param root_page_no Page number of the first leaf page of the table.
+ * @param rec_128b     Pointer to the 128-byte record to insert.
+ * @param out_id       Optional pointer to receive the global record index.
+ *                     This is a zero-based index across all pages in the table.
+ *                     If NULL, the index is not returned.
+ * @return TABLE_OK on success, TABLE_E_* on error.
+*/
+int tblmgr_insert(Pager* p, uint32_t root_page_no, const void* rec_128b, uint32_t* out_id);
+
 
 /**
  * @brief Iterate over all records in the table and invoke a callback for each used slot.
