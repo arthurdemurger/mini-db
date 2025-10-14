@@ -10,8 +10,8 @@ int tblmgr_create(Pager* pager, uint32_t first_page_num) {
 
   while (first_page_num >= pager_page_count(pager)) {
     uint32_t new_no;
-    int prc = pager_alloc_page(pager, &new_no);
-    if (prc != PAGER_OK) {
+    int rc = pager_alloc_page(pager, &new_no);
+    if (rc != PAGER_OK) {
       return TABLE_E_INVAL;
     }
   }
@@ -192,4 +192,55 @@ int tblmgr_scan(Pager* p,
   free(buf);
   return TABLE_OK;
 }
+
+int tblmgr_delete(Pager* pager, uint32_t id) {
+  if (!pager)
+    return TABLE_E_INVAL;
+
+  const uint32_t page_no  = id >> 16;
+  const uint16_t slot_idx = (uint16_t)(id & 0xFFFF);
+
+  // Page 0 is the file header; must be >= 1 and strictly less than page_count
+  const uint32_t pcnt = pager_page_count(pager);
+  if (page_no == 0 || page_no >= pcnt)
+    return TABLE_E_INVAL;
+
+  const size_t pgsz = pager_page_size(pager);
+  uint8_t* buf = (uint8_t*)malloc(pgsz);
+  if (!buf) return TABLE_E_INVAL;
+
+  // Read page and validate table leaf layout
+  int rc = pager_read(pager, page_no, buf);
+  if (rc != PAGER_OK) { free(buf); return TABLE_E_INVAL; }
+
+  rc = tbl_validate(buf);
+  if (rc != TABLE_OK) { free(buf); return rc; }
+
+  // Basic invariants and slot bounds
+  const uint16_t cap = tbl_get_capacity(buf);
+  if (slot_idx >= cap) { free(buf); return TABLE_E_INVAL; }
+
+  // Must be currently used to delete it
+  if (!tbl_slot_is_used(buf, slot_idx)) {
+    free(buf);
+    return TABLE_E_INVAL;
+  }
+
+  // Reset the slot
+  void* rec_ptr = tbl_slot_ptr(buf, slot_idx);
+  if (rec_ptr) {
+    memset(rec_ptr, 0, TABLE_RECORD_SIZE);
+  }
+
+  // Mark slot free
+  tbl_slot_mark_free(buf, slot_idx);
+
+  // Persist updated page
+  rc = pager_write(pager, page_no, buf);
+  free(buf);
+  if (rc != PAGER_OK) return TABLE_E_INVAL;
+
+  return TABLE_OK;
+}
+
 
