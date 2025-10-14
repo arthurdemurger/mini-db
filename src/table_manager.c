@@ -140,3 +140,56 @@ int tblmgr_insert(Pager* p, uint32_t root_page_no, const void* rec_128b, uint32_
     page = new_page;
   }
 }
+
+int tblmgr_scan(Pager* p,
+                uint32_t root_page_no,
+                int (*callback)(const void* record,
+                                uint32_t record_id,
+                                void* user_data),
+                void* user_data)
+{
+  if (!p || root_page_no == 0 || !callback)
+    return TABLE_E_INVAL;
+
+  const size_t pgsz = pager_page_size(p);
+  uint8_t* buf = (uint8_t*)malloc(pgsz);
+  if (!buf) return TABLE_E_INVAL;
+
+  uint32_t page = root_page_no;
+
+  while (true) {
+    // read current page
+    int rc = pager_read(p, page, buf);
+    if (rc != PAGER_OK) { free(buf); return TABLE_E_INVAL; }
+
+    // Validate table leaf page
+    rc = tbl_validate(buf);
+    if (rc != TABLE_OK) { free(buf); return rc; }
+
+    const uint16_t cap  = tbl_get_capacity(buf);
+    const uint32_t next = tbl_get_next_page(buf);
+
+    const uint32_t page_count = pager_page_count(p);
+    if (next >= page_count && next != 0) { free(buf); return TABLE_E_LAYOUT; }
+    // Visit all used slots and invoke the callback
+    for (uint16_t i = 0; i < cap; i++) {
+      if (!tbl_slot_is_used(buf, i))
+        continue;
+
+      const void* rec = tbl_slot_ptr(buf, i);
+      uint32_t id = (page << 16) | (uint32_t)i;
+
+      int cb_rc = callback(rec, id, user_data);
+      if (cb_rc != 0) { free(buf); return cb_rc; }
+    }
+
+    if (next == 0)
+      break;
+
+    page = next;
+  }
+
+  free(buf);
+  return TABLE_OK;
+}
+

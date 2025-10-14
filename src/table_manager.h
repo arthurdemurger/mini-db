@@ -49,18 +49,27 @@ int tblmgr_create(Pager* pager, uint32_t first_page_num);
 */
 int tblmgr_insert(Pager* p, uint32_t root_page_no, const void* rec_128b, uint32_t* out_id);
 
-
 /**
- * @brief Iterate over all records in the table and invoke a callback for each used slot.
+ * @brief Scan all records in the table, invoking a callback for each.
  *
- * The callback receives a pointer to the record data.
- * Returning non-zero from the callback stops the iteration early.
+ * The callback is invoked with a pointer to the record data,
+ * the global record index, and the user_data pointer.
+ * If the callback returns a non-zero value, the scan is aborted
+ * and that value is returned by tblmgr_scan().
+ * If the scan completes successfully, TABLE_OK is returned.
  *
- * @param pager     Pointer to the Pager managing the file.
- * @param callback  Function pointer called for each used record.
- * @return TABLE_OK on success, or the callback’s return value if it stops iteration.
+ * @param p            Pointer to the Pager managing the file.
+ * @param root_page_no Page number of the first leaf page of the table.
+ * @param callback     Function pointer to the callback to invoke for each record.
+ * @param user_data    Optional pointer to user data passed to the callback.
+ * @return TABLE_OK on success, or the non-zero value returned by the callback on abort
  */
-int tblmgr_scan(Pager* pager, int (*callback)(const void* record));
+int tblmgr_scan(Pager* p,
+                uint32_t root_page_no,
+                int (*callback)(const void* record,
+                                uint32_t record_id,
+                                void* user_data),
+                void* user_data);
 
 /**
  * @brief Delete (free) a record at the given global index.
