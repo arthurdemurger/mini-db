@@ -243,4 +243,43 @@ int tblmgr_delete(Pager* pager, uint32_t id) {
   return TABLE_OK;
 }
 
+int tblmgr_validate_all(Pager* pager, uint32_t first_page_num) {
+  if (!pager || first_page_num == 0)
+    return TABLE_E_INVAL;
 
+  const size_t pgsz = pager_page_size(pager);
+  uint8_t* buf = (uint8_t*)malloc(pgsz);
+  if (!buf) return TABLE_E_INVAL;
+
+  const uint32_t page_count = pager_page_count(pager);
+  uint32_t page = first_page_num;
+
+  while (true) {
+    // Range check before read (avoid reading header or out-of-range)
+    if (page == 0 || page >= page_count) { free(buf); return TABLE_E_LAYOUT; }
+
+    // Read page
+    int prc = pager_read(pager, page, buf);
+    if (prc != PAGER_OK) { free(buf); return TABLE_E_INVAL; }
+
+    // Validate table/leaf page invariants
+    int trc = tbl_validate(buf);
+    if (trc != TABLE_OK) { free(buf); return trc; }
+
+    // Get next page and perform basic sanity checks
+    const uint32_t next = tbl_get_next_page(buf);
+
+    if (next == 0) {
+      // End of chain
+      break;
+    }
+
+    // next must be within file page range
+    if (next >= page_count) { free(buf); return TABLE_E_LAYOUT; }
+
+    page = next;
+  }
+
+  free(buf);
+  return TABLE_OK;
+}
