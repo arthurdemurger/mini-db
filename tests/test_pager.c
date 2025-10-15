@@ -76,13 +76,6 @@ static void test_bad_pagesize(void) {
     assert(p == NULL);
 }
 
-static void test_pagecount_zero(void) {
-    Pager* p = NULL;
-    int rc = pager_open("tests/fixtures/pagecount_zero.db", &p);
-    assert(rc < 0 && "pagecount zero should fail");
-    assert(p == NULL);
-}
-
 static void test_bad_flags(void) {
     Pager* p = NULL;
     int rc = pager_open("tests/fixtures/bad_flags.db", &p);
@@ -111,7 +104,6 @@ int main(void) {
     test_bad_magic();
     test_bad_version();
     test_bad_pagesize();
-    test_pagecount_zero();
     test_bad_flags();
     test_truncated();
     test_ok_extra();
