@@ -341,7 +341,7 @@ int tblmgr_update(Pager* pager, uint32_t id, const void* rec_128b) {
   const void* dst = tbl_slot_ptr(buf, slot_idx);
   if (!dst) { free(buf); return TABLE_E_INVAL; }
 
-  memcpy(dst, rec_128b, TABLE_RECORD_SIZE);
+  memcpy((void *) dst, rec_128b, TABLE_RECORD_SIZE);
 
   rc = pager_write(pager, page_no, buf);
   free(buf);
