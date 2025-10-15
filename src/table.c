@@ -231,6 +231,27 @@ uint32_t tbl_get_next_page(const void* page){
   return hdr_next_page(page);
 }
 
+void tbl_set_next_page(void* page, uint32_t next_page) {
+  hdr_set_next_page(page, next_page);
+}
+
+int tbl_slot_is_used(const void* page, int idx) {
+  if (!page || idx < 0)
+    return 0;
+
+  uint16_t cap = hdr_capacity(page);
+
+  if (cap <= idx)
+    return 0;
+
+  const uint8_t *bm = bitmap_ptr_c(page);
+  size_t byte = idx / 8;
+  size_t bit = idx % 8;
+
+  uint8_t bit_mask = (uint8_t) (1u << bit);
+  return (bm[byte] & bit_mask) != 0;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Header accessors (internal)
 // ─────────────────────────────────────────────────────────────────────────────

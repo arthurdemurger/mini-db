@@ -143,4 +143,20 @@ uint16_t tbl_get_used_count(const void* page);
  */
 uint32_t tbl_get_next_page(const void* page);
 
+/**
+ * @brief Set the next-page number in the header.
+ * @param[in,out] page Page buffer to modify.
+ * @param[in] next_page Next page number (0 if none).
+ */
+void tbl_set_next_page(void* page, uint32_t next_page);
+
+/**
+ * @brief Check if a slot is currently used (bit = 1).
+ * @param[in] page Page buffer (TABLE_LEAF).
+ * @param[in] idx Slot index.
+ * @return Non-zero if the slot is used, 0 if free or on error.
+ */
+int tbl_slot_is_used(const void* page, int idx);
+
+
 #endif //TABLE_H
