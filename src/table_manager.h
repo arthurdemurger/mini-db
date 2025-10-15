@@ -11,7 +11,7 @@
  * Policy:
  * - Page 0 is reserved for the file header and MUST NOT be used by tables.
  * - If first_page_num >= pager_page_count, missing pages are allocated until
- *   first_page_num exists (Design A: explicit alloc via pager_alloc_page).
+ *   first_page_num exists
  * - If the target page is all zeros, it is initialized as a V1 leaf:
  *     kind = TABLE_PAGE_KIND_LEAF (0x0001),
  *     record_size = 128 (TABLE_RECORD_SIZE),
@@ -64,7 +64,7 @@ int tblmgr_insert(Pager* p, uint32_t root_page_no, const void* rec_128b, uint32_
  * @param user_data    Optional pointer to user data passed to the callback.
  * @return TABLE_OK on success, or the non-zero value returned by the callback on abort
  */
-int tblmgr_scan(Pager* p,
+int tblmgr_scan(Pager* pager,
                 uint32_t root_page_no,
                 int (*callback)(const void* record,
                                 uint32_t record_id,
@@ -94,5 +94,30 @@ int tblmgr_delete(Pager* pager, uint32_t id);
  * @return TABLE_OK if all pages are valid, or the first TABLE_E_* encountered.
  */
 int tblmgr_validate_all(Pager* pager, uint32_t first_page_num);
+
+/**
+ * @brief Retrieve a record by its global index.``
+ *
+ * This function computes the page and local slot index,
+ * reads the page, and copies the record data into out_rec128.
+ * @param pager Pointer to the Pager managing the file.
+ * @param id    Global record index (across pages).
+ * @param out_rec128 Pointer to a 128-byte buffer to receive the record data.
+ * @return TABLE_OK on success, TABLE_E_* on error.
+ */
+int tblmgr_get(Pager* pager, uint32_t id, void* out_rec128);
+
+
+/**
+ * @brief Update a record at the given global index.
+ *
+ * This function computes the page and local slot index,
+ * reads the page, updates the record data, and writes back the page.
+ * @param pager Pointer to the Pager managing the file.
+ * @param id    Global record index (across pages).
+ * @param rec_128b Pointer to a 128-byte buffer containing the new record data.
+ * @return TABLE_OK on success, TABLE_E_* on error.
+ */
+int tblmgr_update(Pager* pager, uint32_t id, const void* rec_128b);
 
 #endif // TABLE_MANAGER_H

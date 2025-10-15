@@ -39,7 +39,7 @@ int tblmgr_create(Pager* pager, uint32_t first_page_num) {
     if (rc != TABLE_OK) { free(buf); return rc; }
 
     rc = pager_write(pager, first_page_num, buf);
-    if (rc != PAGER_OK) { free(buf); return PAGER_E_INVAL; }
+    if (rc != PAGER_OK) { free(buf); return TABLE_E_INVAL; }
 
     free(buf);
     return TABLE_OK;
@@ -141,17 +141,17 @@ int tblmgr_insert(Pager* p, uint32_t root_page_no, const void* rec_128b, uint32_
   }
 }
 
-int tblmgr_scan(Pager* p,
+int tblmgr_scan(Pager* pager,
                 uint32_t root_page_no,
                 int (*callback)(const void* record,
                                 uint32_t record_id,
                                 void* user_data),
                 void* user_data)
 {
-  if (!p || root_page_no == 0 || !callback)
+  if (!pager || root_page_no == 0 || !callback)
     return TABLE_E_INVAL;
 
-  const size_t pgsz = pager_page_size(p);
+  const size_t pgsz = pager_page_size(pager);
   uint8_t* buf = (uint8_t*)malloc(pgsz);
   if (!buf) return TABLE_E_INVAL;
 
@@ -159,7 +159,7 @@ int tblmgr_scan(Pager* p,
 
   while (true) {
     // read current page
-    int rc = pager_read(p, page, buf);
+    int rc = pager_read(pager, page, buf);
     if (rc != PAGER_OK) { free(buf); return TABLE_E_INVAL; }
 
     // Validate table leaf page
@@ -169,7 +169,7 @@ int tblmgr_scan(Pager* p,
     const uint16_t cap  = tbl_get_capacity(buf);
     const uint32_t next = tbl_get_next_page(buf);
 
-    const uint32_t page_count = pager_page_count(p);
+    const uint32_t page_count = pager_page_count(pager);
     if (next >= page_count && next != 0) { free(buf); return TABLE_E_LAYOUT; }
     // Visit all used slots and invoke the callback
     for (uint16_t i = 0; i < cap; i++) {
@@ -281,5 +281,71 @@ int tblmgr_validate_all(Pager* pager, uint32_t first_page_num) {
   }
 
   free(buf);
+  return TABLE_OK;
+}
+
+int tblmgr_get(Pager* pager, uint32_t id, void* out_rec128) {
+  if (!pager || !out_rec128) return TABLE_E_INVAL;
+
+  const uint32_t page_no  = id >> 16;
+  const uint16_t slot_idx = (uint16_t)(id & 0xFFFF);
+
+  const uint32_t page_count = pager_page_count(pager);
+  if (page_no == 0 || page_no >= page_count) return TABLE_E_INVAL;
+
+  const size_t page_sz = pager_page_size(pager);
+  uint8_t* buf = (uint8_t*)malloc(page_sz);
+  if (!buf) return TABLE_E_INVAL;
+
+  int rc = pager_read(pager, page_no, buf);
+  if (rc != PAGER_OK) { free(buf); return TABLE_E_INVAL; }
+
+  rc = tbl_validate(buf);
+  if (rc != TABLE_OK) { free(buf); return rc; }
+
+  const uint16_t cap = tbl_get_capacity(buf);
+  if (slot_idx >= cap) { free(buf); return TABLE_E_INVAL; }
+  if (!tbl_slot_is_used(buf, slot_idx)) { free(buf); return TABLE_E_INVAL; }
+
+  const void* src = tbl_slot_ptr(buf, slot_idx);
+  if (!src) { free(buf); return TABLE_E_INVAL; }
+
+  memcpy(out_rec128, src, TABLE_RECORD_SIZE);
+  free(buf);
+  return TABLE_OK;
+}
+
+int tblmgr_update(Pager* pager, uint32_t id, const void* rec_128b) {
+  if (!pager || !rec_128b) return TABLE_E_INVAL;
+
+  const uint32_t page_no  = id >> 16;
+  const uint16_t slot_idx = (uint16_t)(id & 0xFFFF);
+
+  const uint32_t page_count = pager_page_count(pager);
+  if (page_no == 0 || page_no >= page_count) return TABLE_E_INVAL;
+
+  const size_t page_sz = pager_page_size(pager);
+  uint8_t* buf = (uint8_t*)malloc(page_sz);
+  if (!buf) return TABLE_E_INVAL;
+
+  int rc = pager_read(pager, page_no, buf);
+  if (rc != PAGER_OK) { free(buf); return TABLE_E_INVAL; }
+
+  rc = tbl_validate(buf);
+  if (rc != TABLE_OK) { free(buf); return rc; }
+
+  const uint16_t cap = tbl_get_capacity(buf);
+  if (slot_idx >= cap) { free(buf); return TABLE_E_INVAL; }
+  if (!tbl_slot_is_used(buf, slot_idx)) { free(buf); return TABLE_E_INVAL; }
+
+  const void* dst = tbl_slot_ptr(buf, slot_idx);
+  if (!dst) { free(buf); return TABLE_E_INVAL; }
+
+  memcpy(dst, rec_128b, TABLE_RECORD_SIZE);
+
+  rc = pager_write(pager, page_no, buf);
+  free(buf);
+  if (rc != PAGER_OK) return TABLE_E_INVAL;
+
   return TABLE_OK;
 }
