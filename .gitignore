@@ -3,6 +3,8 @@ tests/fixtures/
 *.bin
 *.db
 .DS_Store
+mdb
+test_*
 # Prerequisites
 *.d
 
