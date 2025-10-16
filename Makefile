@@ -1,66 +1,140 @@
-CC       := gcc
-CFLAGS   := -std=c17 -Wall -Wextra -O2 -g
-CPPFLAGS := -Iinclude -Isrc
+# ================== Toolchain & flags =========================================
+CC      ?= cc
+CSTD    ?= -std=c11
+BASE_CFLAGS ?= -Wall -Wextra -O2
+CFLAGS  ?= $(CSTD) $(BASE_CFLAGS)
+LDFLAGS ?=
+INCLUDES := -Isrc
 
-SRC_DIR  := src
-TEST_DIR := tests
-FIX_DIR  := $(TEST_DIR)/fixtures
-DSYM_DIR := $(TEST_DIR)/*.dSYM
+# Sanitizers (enable: make ASAN=1 UBSAN=1)
+ifeq ($(ASAN),1)
+  CFLAGS  += -fsanitize=address -fno-omit-frame-pointer
+  LDFLAGS += -fsanitize=address
+endif
+ifeq ($(UBSAN),1)
+  CFLAGS  += -fsanitize=undefined
+  LDFLAGS += -fsanitize=undefined
+endif
 
-PAGER_SRC := $(SRC_DIR)/pager.c
-PAGER_HDR := $(SRC_DIR)/pager.h
+# ================== Output controls ===========================================
+# COLOR=0 pour désactiver la couleur ; V=1 pour mode verbeux (commandes affichées)
+COLOR ?= 1
+V     ?= 0
+ifeq ($(COLOR),1)
+  C_RESET := \033[0m
+  C_DIM   := \033[2m
+  C_BOLD  := \033[1m
+  C_RED   := \033[31m
+  C_GRN   := \033[32m
+  C_YLW   := \033[33m
+  C_BLU   := \033[34m
+  C_CYA   := \033[36m
+else
+  C_RESET :=
+  C_DIM   :=
+  C_BOLD  :=
+  C_RED   :=
+  C_GRN   :=
+  C_YLW   :=
+  C_BLU   :=
+  C_CYA   :=
+endif
+ifeq ($(V),1)
+  Q :=
+else
+  Q := @
+endif
 
-TABLE_SRC := $(SRC_DIR)/table.c
-TABLE_HDR := $(SRC_DIR)/table.h $(SRC_DIR)/endian_util.h
+# ================== Sources / objets ==========================================
+SRC_CORE := src/pager.c src/table.c src/table_manager.c
+OBJ_CORE := $(SRC_CORE:.c=.o)
 
-TABLE_MANAGER_SRC := $(SRC_DIR)/table_manager.c
-TABLE_MANAGER_HDR := $(SRC_DIR)/table_manager.h
+CLI_SRC  := src/main.c
+CLI_OBJ  := $(CLI_SRC:.c=.o)
 
-FIX_SRC   := $(FIX_DIR)/make_fixtures.c
-FIX_BIN   := $(FIX_DIR)/make_fixtures.bin
+TEST_SRC := tests/test_pager.c tests/test_table.c tests/test_table_manager.c
+TEST_BIN := test_pager test_table test_table_manager
+TEST_OBJ := $(TEST_SRC:.c=.o)
 
-TEST_PAGER_SRC  := $(TEST_DIR)/test_pager.c
-TEST_PAGER_BIN  := $(TEST_DIR)/test_pager.bin
+# Liste complète des objets (pour le compteur i/N)
+ALL_OBJS := $(OBJ_CORE) $(CLI_OBJ) $(TEST_OBJ)
+TOTAL := $(words $(ALL_OBJS))
 
-TEST_TABLE_SRC  := $(TEST_DIR)/test_table.c
-TEST_TABLE_BIN  := $(TEST_DIR)/test_table.bin
+# ================== Helpers d’affichage =======================================
+# Progression: calcule l’index i de $@ dans ALL_OBJS et affiche [i/N] <fichier>
+define show_progress
+IDX=$$(echo "$(ALL_OBJS)" | tr ' ' '\n' | nl -w1 -s' ' | awk '$$2=="$@"{print $$1}'); \
+printf "$(C_DIM)[%s/$(TOTAL)]$(C_RESET) $(C_CYA)%s$(C_RESET)\n" "$$IDX" "$<";
+endef
 
-TEST_TABLE_MANAGER_SRC  := $(TEST_DIR)/test_table_manager.c
-TEST_TABLE_MANAGER_BIN  := $(TEST_DIR)/test_table_manager.bin
+define show_link
+printf "$(C_DIM)[link]$(C_RESET) $(C_BLU)%s$(C_RESET)\n" "$@"
+endef
 
-.PHONY: all fixtures tests run clean
+# ================== Phony targets =============================================
+.PHONY: all clean test tests scenario help check
 
-# Build fixtures and tests by default
-all: fixtures tests
+# ================== Top-level ==================================================
+all: mdb tests
+	@printf "$(C_GRN)OK$(C_RESET) built: mdb + tests\n"
 
-# ---- Fixtures ----
-$(FIX_BIN): $(FIX_SRC)
-	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ $<
+mdb: $(CLI_OBJ) $(OBJ_CORE)
+	@$(call show_link)
+	$(Q)$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+	@printf "$(C_GRN)OK$(C_RESET) %s\n" "$@"
 
-fixtures: $(FIX_BIN)
-	@mkdir -p $(FIX_DIR)
-	@./$(FIX_BIN)
+# ================== Tests ======================================================
+tests: $(TEST_BIN)
+	@printf "$(C_GRN)OK$(C_RESET) test binaries ready\n"
 
-# ---- Tests ----
-$(TEST_PAGER_BIN): $(TEST_PAGER_SRC) $(PAGER_SRC) $(PAGER_HDR)
-	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ $(TEST_PAGER_SRC) $(PAGER_SRC)
+test_pager: tests/test_pager.o $(OBJ_CORE)
+	@$(call show_link)
+	$(Q)$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-$(TEST_TABLE_BIN): $(TEST_TABLE_SRC) $(TABLE_SRC) $(TABLE_HDR)
-	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ $(TEST_TABLE_SRC) $(TABLE_SRC)
+test_table: tests/test_table.o $(OBJ_CORE)
+	@$(call show_link)
+	$(Q)$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-$(TEST_TABLE_MANAGER_BIN): $(TEST_TABLE_MANAGER_SRC) $(TABLE_MANAGER_SRC) $(PAGER_SRC) $(TABLE_SRC) $(TABLE_MANAGER_HDR)
-	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ $(TEST_TABLE_MANAGER_SRC) $(TABLE_MANAGER_SRC) $(PAGER_SRC) $(TABLE_SRC)
+test_table_manager: tests/test_table_manager.o $(OBJ_CORE)
+	@$(call show_link)
+	$(Q)$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-tests: $(TEST_PAGER_BIN) $(TEST_TABLE_BIN) $(TEST_TABLE_MANAGER_BIN)
+test: tests
+	@printf "$(C_BOLD)Running tests…$(C_RESET)\n"
+	$(Q)./test_pager            && printf "$(C_GRN)PASS$(C_RESET) test_pager\n"           || (printf "$(C_RED)FAIL$(C_RESET) test_pager\n"; exit 1)
+	$(Q)./test_table            && printf "$(C_GRN)PASS$(C_RESET) test_table\n"           || (printf "$(C_RED)FAIL$(C_RESET) test_table\n"; exit 1)
+	$(Q)./test_table_manager    && printf "$(C_GRN)PASS$(C_RESET) test_table_manager\n"   || (printf "$(C_RED)FAIL$(C_RESET) test_table_manager\n"; exit 1)
+	@printf "$(C_GRN)All tests passed$(C_RESET)\n"
 
-# Build fixtures, build tests, then run tests
-run: fixtures tests
-	@$(TEST_PAGER_BIN)
-	@$(TEST_TABLE_BIN)
-	@$(TEST_TABLE_MANAGER_BIN)
+check: clean
+	$(Q)$(MAKE) ASAN=1 UBSAN=1 test scenario
 
-# ---- Cleanup ----
+# ================== Scénario ===================================================
+scenario: mdb scripts/run_scenario.sh
+	@printf "$(C_BOLD)Scenario…$(C_RESET)\n"
+	$(Q)./scripts/run_scenario.sh && printf "$(C_GRN)OK$(C_RESET) scenario\n"
+
+# ================== Règles de compilation =====================================
+# Règles src/
+src/%.o: src/%.c src/pager.h src/table.h src/table_manager.h
+	@$(call show_progress)
+	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+# Règles tests/
+tests/%.o: tests/%.c src/pager.h src/table.h src/table_manager.h
+	@$(call show_progress)
+	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+# Objet du CLI
+src/main.o: src/main.c src/pager.h src/table_manager.h
+	@$(call show_progress)
+	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+# ================== Maintenance ===============================================
 clean:
-	@rm -f $(FIX_BIN) $(TEST_PAGER_BIN) $(TEST_TABLE_BIN) $(TEST_TABLE_MANAGER_BIN)
-	@if [ -d "$(FIX_DIR)" ]; then rm -f $(FIX_DIR)/*.db; fi
-	@if [ -d "$(DSYM_DIR)/" ]; then rm -f $(DSYM_DIR)/; fi
+	$(Q)rm -f $(OBJ_CORE) $(CLI_OBJ) $(TEST_OBJ) $(TEST_BIN) mdb
+	@printf "$(C_YLW)cleaned$(C_RESET)\n"
+
+help:
+	@echo "Targets: all, mdb, tests, test, scenario, check, clean, help"
+	@echo "Flags  : COLOR=0 (no color), V=1 (verbose), ASAN=1 UBSAN=1"
