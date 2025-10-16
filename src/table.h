@@ -144,6 +144,12 @@ uint16_t tbl_get_used_count(const void* page);
 uint32_t tbl_get_next_page(const void* page);
 
 /**
+ * @brief Retrieve the page kind (e.g. TABLE_PAGE_KIND_LEAF).
+ */
+uint16_t tbl_get_kind(const void* page);
+
+
+/**
  * @brief Set the next-page number in the header.
  * @param[in,out] page Page buffer to modify.
  * @param[in] next_page Next page number (0 if none).

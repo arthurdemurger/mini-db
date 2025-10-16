@@ -215,6 +215,10 @@ const void* tbl_slot_ptr_c(const void* page, int idx) {
   return base + offset + (size_t) (record_size * idx);
 }
 
+uint16_t tbl_get_kind(const void* page){
+  return hdr_kind(page);
+}
+
 uint16_t tbl_get_capacity(const void* page){
   return hdr_capacity(page);
 }
