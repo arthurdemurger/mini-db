@@ -4,6 +4,7 @@
 #include <string.h>
 #include <errno.h>
 
+#include "cli_format.h"
 #include "pager.h"
 #include "table_manager.h"
 #include "table.h"
@@ -78,6 +79,35 @@ static void cmd_validate(Pager* p, uint32_t root) {
   printf("ok\n");
 }
 
+// getf <id> <spec>
+static void cmd_getf(Pager* p, uint32_t id, const char* spec_str) {
+  unsigned char rec[128];
+  if (tblmgr_get(p, id, rec) != TABLE_OK) { fprintf(stderr, "get %u failed\n", id); exit(1); }
+
+  char buf[512]; strncpy(buf, spec_str, sizeof buf - 1); buf[sizeof buf - 1] = 0;
+  FieldSpec fs;
+  if (parse_spec(buf, &fs) != 0) { fprintf(stderr, "bad spec\n"); exit(2); }
+
+  print_header_spec(&fs);
+  print_row_spec(id, &fs, rec);
+  print_footer_spec(&fs, 1);
+}
+
+// listf <root> <spec>
+static void cmd_listf(Pager* p, uint32_t root, const char* spec_str) {
+  char buf[512]; strncpy(buf, spec_str, sizeof buf - 1); buf[sizeof buf - 1] = 0;
+  FieldSpec fs;
+  if (parse_spec(buf, &fs) != 0) { fprintf(stderr, "bad spec\n"); exit(2); }
+
+  print_header_spec(&fs);
+  size_t n = 0;
+  ListfCtx ctx = { .fs = &fs, .counter = &n };
+  int rc = tblmgr_scan(p, root, scan_cb_listf, &ctx);
+  if (rc != TABLE_OK) { fprintf(stderr, "scan failed rc=%d\n", rc); exit(1); }
+  print_footer_spec(&fs, n);
+}
+
+
 static void usage(const char* prog) {
   fprintf(stderr,
     "Usage:\n"
@@ -87,8 +117,10 @@ static void usage(const char* prog) {
     "  %s <db> update <id> <file_128bytes>\n"
     "  %s <db> delete <id>\n"
     "  %s <db> scan <root_page>\n"
-    "  %s <db> validate <root_page>\n",
-    prog, prog, prog, prog, prog, prog, prog);
+    "  %s <db> validate <root_page>\n"
+    "  %s <db> listf <root_page> <spec>\n"
+    "  %s <db> getf  <id>        <spec>\n",
+    prog, prog, prog, prog, prog, prog, prog, prog, prog);
   exit(2);
 }
 
@@ -213,6 +245,16 @@ int main(int argc, char** argv) {
       uint32_t id = (uint32_t)strtoul(argv[4], NULL, 10);
       cmd_dump_row(p, id);
     }
+  } else if (strcmp(cmd, "listf")==0) {
+    if (argc != 5) usage(argv[0]);
+    uint32_t root = (uint32_t)strtoul(argv[3], NULL, 10);
+    const char* spec = argv[4];
+    cmd_listf(p, root, spec);
+  } else if (strcmp(cmd, "getf")==0) {
+    if (argc != 5) usage(argv[0]);
+    uint32_t id = (uint32_t)strtoul(argv[3], NULL, 10);
+    const char* spec = argv[4];
+    cmd_getf(p, id, spec);
   } else {
     usage(argv[0]);
   }

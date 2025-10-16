@@ -46,8 +46,9 @@ else
 endif
 
 # ================== Sources / objets ==========================================
-SRC_CORE := src/pager.c src/table.c src/table_manager.c
+SRC_CORE := src/pager.c src/table.c src/table_manager.c src/cli_format.c
 OBJ_CORE := $(SRC_CORE:.c=.o)
+
 
 CLI_SRC  := src/main.c
 CLI_OBJ  := $(CLI_SRC:.c=.o)
@@ -116,9 +117,8 @@ scenario: mdb scripts/run_scenario.sh
 
 # ================== Règles de compilation =====================================
 # Règles src/
-src/%.o: src/%.c src/pager.h src/table.h src/table_manager.h
-	@$(call show_progress)
-	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+src/%.o: src/%.c src/pager.h src/table.h src/table_manager.h src/cli_format.h
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 # Règles tests/
 tests/%.o: tests/%.c src/pager.h src/table.h src/table_manager.h
