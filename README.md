@@ -1,78 +1,69 @@
-# Mini-DB (C) — V1 (Pager + Table Leaf Design)
+# Mini-DB (C) — Educational Storage Engine
 
-A tiny educational database engine in C that starts with a clean, low-level **pager** and a simple **table page (TABLE_LEAF)** layout.
-
----
-
-## 🔧 Current State (V1)
-
-✅ **Implemented:**
-- Pager (open/read/close, fixed 4 KiB pages)
-- In-page table operations (`tbl_init_leaf`, `tbl_validate`, `tbl_slot_find_free`)
-- Bitmap management and validation (`bitmap_popcount`, extra-bit masking)
-- Complete test suite for `pager.c` and `table.c`
-- Updated Makefile with independent test targets (`test_pager.bin`, `test_table.bin`)
-- Slot operations (`tbl_slot_mark_used`, `tbl_slot_mark_free`)
-- Slot accessors (`tbl_slot_ptr`, `tbl_slot_ptr_c`)
-- Header getters (`tbl_get_capacity`, `tbl_get_record_size`, `tbl_get_used_count`, `tbl_get_next_page`)
-
-🧩 **In progress / upcoming:**
-- Higher-level CRUD API (`table_insert`, `table_select_all`)
-- Pager write/alloc extensions
-- CLI (REPL) for manual testing
+A compact and pedagogical database engine written in **C**, designed to explore the internals of paged storage, record management, and simple query layers.
 
 ---
 
-## 🚀 Quick Start
+## 🌟 Overview
 
+Mini-DB implements a minimal but complete data storage stack:
+
+| Layer | Purpose | Key Files |
+|-------|----------|-----------|
+| **Pager** | Handles low-level file I/O, page caching and allocation (4 KiB pages). | `src/pager.c`, `src/pager.h` |
+| **Table** | Manages records inside a fixed-size leaf page. | `src/table.c`, `src/table.h` |
+| **Table Manager** | CRUD operations, page chaining, record IDs. | `src/table_manager.c`, `src/table_manager.h` |
+| **CLI** | Command-line interface to manipulate the database. | `src/main.c` |
+| **Formatter** | Generic pretty-printer for tabular records. | `src/cli_format.c`, `src/cli_format.h` |
+
+---
+
+## ✅ Current State (as of this version)
+
+**Fully implemented and tested:**
+
+- Pager: open/read/write/alloc/close with integrity checks.
+- Table: leaf page validation, bitmap management, slot operations.
+- Table Manager: complete CRUD + scan + validation across chained pages.
+- CLI: `create`, `insert`, `get`, `update`, `delete`, `scan`, `validate`, `inspect`, `dump`, and tabular output (`listf`, `getf`).
+- Formatter module for generic pretty-print of records.
+- Robust Makefile with sanitizer options and colorized output.
+- Functional test suites for each layer (`test_pager`, `test_table`, `test_table_manager`).
+- Scenario scripts (`scripts/hex_scenario.sh`, `scripts/classic_scenario.sh`) for end-to-end demos.
+
+---
+
+## ⚙️ Build & Run
+
+### Prerequisites
+- GCC or Clang with C11 support.
+- GNU Make.
+
+### Build everything
 ```bash
-# Build everything and run both pager & table tests
-make run
-
-# Step-by-step
-make fixtures   # build and run the fixtures generator
-make tests      # build all test binaries
-./tests/test_pager.bin
-./tests/test_table.bin
-
-# Clean everything
-make clean
+make all
 ```
+
+### Run all tests
+```bash
+make test
+```
+
+### Run demo scenario (end-to-end)
+```bash
+make hex_scenario
+```
+
+### Run classic example (tabular output)
+```bash
+make classic_scenario
+```
+
+The classic scenario creates a database with a table of 128‑byte records (name, age, city, note) and shows all CLI commands.
 
 ---
 
-## 📁 Repository Layout
-
-```
-.
-├── LICENSE
-├── Makefile
-├── README.md
-├── docs/
-├── include/
-│   ├── pager.h           # public pager API
-│   └── table.h           # in-page table operations & layout constants
-├── src/
-│   ├── endian_util.h     # little-endian helpers
-│   ├── pager.c           # pager_open/read/close
-│   ├── pager.h
-│   ├── table.c           # TABLE_LEAF operations & validation
-│   └── table.h
-└── tests/
-    ├── fixtures/
-    │   ├── make_fixtures.c   # builds test fixture databases
-    │   └── make_fixtures.bin
-    ├── test_pager.c          # pager-level tests
-    ├── test_table.c          # table leaf validation & bitmap tests
-    ├── test_pager.bin
-    └── test_table.bin
-```
-
----
-
-## 🧱 TABLE_LEAF — On-page Layout (V1)
-
-### Structure (4096 B total)
+## 🧱 Table Page Layout (4 KiB)
 
 ```
 +------------------------------+
@@ -80,85 +71,156 @@ make clean
 +------------------------------+
 | Slot Bitmap (ceil(C/8) B)    |
 +------------------------------+
-| Data Area (C × 128 B)        |
+| Record Area (C × 128 B)      |
 +------------------------------+
 ```
 
-Where **C = 31** for V1.
-
 ### Header (little-endian)
 
-| Offset | Size | Field         | Description |
-|:------:|:----:|---------------|--------------|
-| 0 | 2 | kind | 0x0001 (TABLE_LEAF) |
-| 2 | 2 | record_size | 128 |
-| 4 | 2 | capacity | #slots (31) |
-| 6 | 2 | used_count | occupied slots |
-| 8 | 4 | next_page | next leaf (0=end) |
-| 12 | 4 | reserved0 | future |
-| 16 | 4 | reserved1 | future |
-| 20 | 4 | reserved2 | future |
+| Offset | Size | Field | Description |
+|:------:|:----:|:------|:-------------|
+| 0 | 2 | kind | `0x0001` (TABLE_LEAF) |
+| 2 | 2 | record_size | Usually 128 |
+| 4 | 2 | capacity | Record slots (≈31) |
+| 6 | 2 | used_count | Number of used records |
+| 8 | 4 | next_page | Chained page (0=end) |
+| 12–23 | 12 | reserved | future use |
 
-### Bitmap semantics
-- **1 bit = slot used**, **0 bit = free**
-- Stored **LSB-first** per byte
-- Bits beyond `capacity` (in the last byte) **must be zero**
+Bitmap bits beyond capacity must be 0. Validation ensures `popcount(bitmap) == used_count`.
 
 ---
 
-## 🧩 Validation Rules
+## 🧩 Record ID Encoding
 
-A valid page must satisfy:
+Each record ID is a 32‑bit value:  
+`id = (page_no << 16) | slot_index`
 
-1. `kind == TABLE_PAGE_KIND_LEAF`
-2. `record_size == 128`
-3. `1 ≤ capacity` and `used_count ≤ capacity`
-4. `popcount(bitmap) == used_count`
-5. No bits beyond `capacity` set in the last byte
-6. `data_offset(capacity) + cap * record_size ≤ TABLE_PAGE_SIZE`
-
-Violations return `TABLE_E_*` codes.
+This allows up to 65 535 records per page and billions of pages overall.
 
 ---
 
-## 🧪 Tests
+## 💻 CLI Commands
 
-`tests/test_table.c` exercises:
+### Basic CRUD
+| Command | Usage | Description |
+|----------|-------|-------------|
+| `create` | `<db> create <root_page>` | Initialize a table at given page. |
+| `insert` | `<db> insert <root_page> <record_file>` | Insert a 128‑byte record. |
+| `get` | `<db> get <id>` | Dump record bytes in hex. |
+| `update` | `<db> update <id> <record_file>` | Replace record content. |
+| `delete` | `<db> delete <id>` | Mark slot free. |
+| `scan` | `<db> scan <root_page>` | List all IDs (one per line). |
+| `validate` | `<db> validate <root_page>` | Validate chain of pages. |
 
-- ✅ `tbl_init_leaf()` initializes a clean header/bitmap
-- ✅ `tbl_validate()` detects layout, bitmap, and popcount mismatches
-- ✅ `tbl_slot_find_free()` returns correct first free slot and -1 when full
-- ✅ Extra bits in the last bitmap byte trigger `TABLE_E_BITMAP`
-- ✅ `tbl_slot_mark_used()` / `tbl_slot_mark_free()` update and validate `used_count`
-- ✅ `tbl_slot_ptr()` and `_c()` return correct record pointers
-- ✅ Getters return header fields consistent with raw layout
+### Inspection & Debug
+| Command | Usage | Description |
+|----------|-------|-------------|
+| `inspect` | `<db> inspect <root_page>` | Show structure of all linked pages. |
+| `dump` | `<db> dump page <no>` / `dump row <id>` | Hex‑dump a page or record. |
 
+### Tabular Display (Generic Formatter)
+| Command | Usage | Description |
+|----------|-------|-------------|
+| `listf` | `<db> listf <root_page> <spec>` | Display all rows as a table based on a field spec. |
+| `getf` | `<db> getf <id> <spec>` | Display a single record in tabular form. |
 
-Typical output:
+### Spec Format
+```
+name:offset:length:type[,name:offset:length:type...]
+```
+- `s` = NUL‑padded string  
+- `u8`, `u16`, `u32` = integers (little‑endian)  
+- `hex` = bytes as hex pairs
+
+Example for 128‑byte classic layout:
+```
+"name:0:32:s,age:32:1:u8,city:33:32:s,note:65:63:s"
+```
+
+---
+
+## 🧪 Testing
+
+| Test File | Purpose |
+|------------|----------|
+| `tests/test_pager.c` | Validates file header, page read/write, I/O robustness. |
+| `tests/test_table.c` | Checks page structure, bitmap logic, and validation rules. |
+| `tests/test_table_manager.c` | End‑to‑end CRUD and multi‑page chaining tests. |
+
+To run all:
+```bash
+make test
+```
+
+All tests must print *“All tests passed”*.
+
+---
+
+## 📜 Example Output
 
 ```
-$ make run
-All pager tests passed.
-All table tests passed.
+$ ./scripts/classic_scenario.sh
+[5/10] pretty list (table view)
++--------+----------------+-----+--------------+--------------------------------+
+| ID     | name           | age | city         | note                           |
++--------+----------------+-----+--------------+--------------------------------+
+|  65536 | Alice          |  30 | Paris        | Loves baguettes                |
+|  65537 | Bob            |  25 | Lyon         | Enjoys silk history            |
+|  65538 | Carol          |  28 | Tokyo        | Karaoke on Fridays             |
++--------+----------------+-----+--------------+--------------------------------+
+3 row(s)
 ```
 
 ---
 
-## 🛣️ Roadmap
+## 🧰 Makefile Highlights
 
-- [x] Pager open/read/close
-- [x] Fixtures & pager tests
-- [x] TABLE_LEAF layout + capacity validation
-- [x] tbl_init_leaf / tbl_validate / tbl_slot_find_free
-- [x] Dedicated table test binary (`test_table.bin`)
-- [x] Slot mark/free + update used_count
-- [ ] Table-level CRUD (`insert`, `select_all`)
-- [ ] Pager write/alloc
-- [ ] Simple REPL CLI
-- [ ] (Later) Variable-length records / overflow pages
+- Colorized compilation and test output with progress counters.
+- `ASAN` / `UBSAN` support:
+  ```bash
+  make clean && make ASAN=1 UBSAN=1 test
+  ```
+- `make scenario` runs a scripted CRUD demo.
+- `make check` builds and runs everything under sanitizers.
+
+---
+
+## 🧭 Project Structure
+
+```
+src/
+ ├── pager.c/.h
+ ├── table.c/.h
+ ├── table_manager.c/.h
+ ├── cli_format.c/.h      # generic field parser + table printer
+ ├── endian_util.h
+ └── main.c               # CLI (uses pager + table_manager + formatter)
+tests/
+ ├── test_pager.c
+ ├── test_table.c
+ └── test_table_manager.c
+scripts/
+ ├── run_scenario.sh
+ └── classic_scenario.sh
+Makefile
+README.md
+```
+
+---
+
+## 🧭 Roadmap
+
+- [x] Pager read/write/alloc
+- [x] Page validation & slot ops
+- [x] Table Manager CRUD
+- [x] CLI with debug + tabular output
+- [x] Tests & demo scripts
+- [ ] Index pages
+- [ ] Variable‑length records
+- [ ] Mini SQL‑like layer
 
 ---
 
 ## 🪪 License
 
-See [LICENSE](LICENSE).
+MIT License — © 2025 Educational Mini‑DB Project.
